@@ -33,7 +33,6 @@ cues = get_cues()
 ssg_index = get_ssg_index()
 
 st.title("AI Task Risk Analyzer")
-st.caption("Dependency-parse verb–object extraction (spaCy) + SSG key task matching — flat layout (no folders).")
 
 with st.sidebar:
     st.subheader("Optional hints")
