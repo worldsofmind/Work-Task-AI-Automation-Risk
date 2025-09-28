@@ -14,12 +14,12 @@ from utils import (
     SSGTaskIndex,
 )
 
-st.set_page_config(page_title="AI Task Risk Analyzer", layout="wide")
+st.set_page_config(page_title="Job Task AI Readiness", layout="wide")
 
 # =========================
 # Overview (plain English)
 # =========================
-st.title("AI Task Risk Analyzer")
+st.title("Job Task AI Readiness")
 st.markdown(
     """
 **What this tool does**
