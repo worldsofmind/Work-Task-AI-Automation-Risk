@@ -1,8 +1,7 @@
-# app.py  (flat layout: all files in repo root)
+# app.py — simple, business-friendly UI (flat layout)
 import streamlit as st
 import pandas as pd
 
-# Import from flat utils.py (no package/folder needed)
 from utils import (
     load_cues,
     extract_tasks,
@@ -15,84 +14,172 @@ from utils import (
     SSGTaskIndex,
 )
 
-st.set_page_config(page_title="AI Task Risk Analyzer (spaCy + SSG)", layout="wide")
+st.set_page_config(page_title="AI Task Risk Analyzer", layout="wide")
 
-# --- Cached loaders for flat files in repo root ---
+# =========================
+# Overview (plain English)
+# =========================
+st.title("AI Task Risk Analyzer")
+st.markdown(
+    """
+**What this tool does**
+
+- Reads a job description and pulls out the **work tasks**.
+- Matches each task to **SkillsFuture Singapore** “key tasks” where possible.
+- Scores each task for:
+  - **Routine** (how repeatable/standardised it is)
+  - **AI replaceability** (how likely parts could be automated)
+- Recommends a **working mode** for each task:
+  - *Assist-only*, *Assist (Human-in-the-loop)*, or *Autonomous with QA*.
+
+**Who it’s for**  
+Business and HR users who want a quick, easy view of where work can be supported or automated.
+"""
+)
+
+# =============
+# Cached data
+# =============
 @st.cache_resource
 def get_cues():
-    # cue_dicts.json is in the repo root
     return load_cues("cue_dicts.json")
 
 @st.cache_resource
 def get_ssg_index():
-    # ssg_key_tasks.csv is in the repo root
     df = pd.read_csv("ssg_key_tasks.csv")
     return SSGTaskIndex(df[["sector", "role", "task_text"]])
 
 cues = get_cues()
 ssg_index = get_ssg_index()
 
-st.title("AI Task Risk Analyzer")
-
+# =========================
+# Sidebar: quick help
+# =========================
 with st.sidebar:
-    st.subheader("Optional hints")
-    sector_hint = st.text_input("Sector hint")
-    role_hint = st.text_input("Role hint")
+    st.header("Quick steps")
+    st.write("1) Paste a Job Description")
+    st.write("2) (Optional) Add tasks we missed")
+    st.write("3) Click **Analyze**")
+    st.write("4) Review scores & download CSV")
+    st.divider()
+    st.subheader("Optional filters")
+    sector_hint = st.text_input("Sector hint (optional)")
+    role_hint = st.text_input("Role hint (optional)")
+    st.caption("If you know the sector or role, add it here to improve matching.")
 
-tab1, tab2 = st.tabs(["Analyze JD", "Batch CSV"])
+# =========================
+# Inputs
+# =========================
+col_left, col_right = st.columns([1.2, 1])
 
-def analyze_text(jd_text: str) -> pd.DataFrame:
-    tasks = extract_tasks(jd_text, cues)
+with col_left:
+    st.subheader("1) Paste the Job Description")
+    try:
+        default_text = open("sample_job_description.txt", "r", encoding="utf-8").read()
+    except Exception:
+        default_text = ""
+    jd_text = st.text_area(
+        "Job description text",
+        value=default_text,
+        height=260,
+        placeholder="Paste the JD here…",
+    )
+    upload = st.file_uploader("…or upload a .txt file", type=["txt"])
+    if upload is not None:
+        jd_text = upload.read().decode("utf-8", errors="ignore")
+
+with col_right:
+    st.subheader("2) Tasks we missed (optional)")
+    st.caption("If the extractor skipped any real **work tasks**, list them **one per line**.")
+    manual_tasks_text = st.text_area(
+        "Add missing tasks (one per line)",
+        value="",
+        height=140,
+        placeholder="e.g.\nConduct quarterly supplier performance reviews\nPrepare incident response playbooks",
+    )
+    st.caption("We’ll include these tasks in the same analysis.")
+
+run = st.button("Analyze", type="primary")
+
+# =========================
+# Analysis logic
+# =========================
+def analyze_text(jd_text: str, manual_tasks_text: str) -> pd.DataFrame:
+    # Extract tasks from JD
+    extracted = extract_tasks(jd_text or "", cues)
+
+    # Add manual tasks (dedupe, keep non-empty)
+    manual = [t.strip() for t in (manual_tasks_text or "").split("\n")]
+    manual = [t for t in manual if t]
+    # de-duplicate (case-insensitive)
+    seen = {t.lower() for t in extracted}
+    for t in manual:
+        if t.lower() not in seen:
+            extracted.append(t)
+            seen.add(t.lower())
+
+    # Score + SSG match
     rows = []
-    for t in tasks:
+    for t in extracted:
         ssg_info = enrich_with_ssg(t, ssg_index, sector_hint or None, role_hint or None)
         r_score, r_why = score_routine(t, cues)
         a_score, a_detail = score_ai_replaceability(t, cues)
         r_score, a_score = adjust_scores_with_ssg(r_score, a_score, ssg_info)
-
-        rows.append({
-            "task_text": t,
-            "canonical_task": ssg_info["canonical_task"] or "",
-            "sector": ssg_info["sector"] or "",
-            "role": ssg_info["role"] or "",
-            "ssg_match_sim": ssg_info["match_sim"],
-            "task_cluster": cluster_label(t),
-            "routine_score": r_score,
-            "ai_replaceability_score": a_score,
-            "mode": recommend_mode(a_score),
-            "routine_cues": ", ".join(r_why["routine_cues_matched"]) or "-",
-            "predictable_cues": ", ".join(r_why["predictable_cues_matched"]) or "-",
-            "dimension_breakdown": a_detail,
-        })
+        rows.append(
+            {
+                "task_text": t,
+                "canonical_task": ssg_info.get("canonical_task") or "",
+                "sector": ssg_info.get("sector") or "",
+                "role": ssg_info.get("role") or "",
+                "ssg_match_sim": ssg_info.get("match_sim"),
+                "task_cluster": cluster_label(t),
+                "routine_score": r_score,
+                "ai_replaceability_score": a_score,
+                "mode": recommend_mode(a_score),
+                "routine_cues": ", ".join(r_why.get("routine_cues_matched", [])) or "-",
+                "predictable_cues": ", ".join(r_why.get("predictable_cues_matched", [])) or "-",
+                "dimension_breakdown": a_detail,
+            }
+        )
 
     df = pd.DataFrame(rows)
     if not df.empty:
-        df = df.sort_values(by=["ai_replaceability_score", "routine_score"], ascending=False).reset_index(drop=True)
+        df = df.sort_values(
+            by=["ai_replaceability_score", "routine_score"], ascending=False
+        ).reset_index(drop=True)
     return df
 
-with tab1:
-    colA, colB = st.columns([1, 1])
-    with colA:
-        # sample_job_description.txt is in the repo root
-        try:
-            default_text = open("sample_job_description.txt", "r", encoding="utf-8").read()
-        except Exception:
-            default_text = ""
-        jd_input = st.text_area("Paste a Job Description", height=260, value=default_text)
-        uploaded = st.file_uploader("...or upload a .txt file", type=["txt"], key="txt")
-        if uploaded is not None:
-            jd_input = uploaded.read().decode("utf-8", errors="ignore")
-        run = st.button("Extract & Score Tasks", type="primary")
+# =========================
+# Results
+# =========================
+if run:
+    if not (jd_text or manual_tasks_text):
+        st.warning("Please paste a Job Description or add at least one task.")
+    else:
+        df = analyze_text(jd_text, manual_tasks_text)
 
-    with colB:
-        st.markdown("#### Results")
-        if run and jd_input.strip():
-            df = analyze_text(jd_input)
-            if df.empty:
-                st.info("No task-like lines found.")
-            else:
-                st.dataframe(
-                    df[[
+        st.subheader("3) Results")
+
+        st.markdown(
+            """
+**How to read this:**
+- **Task** — a short, action-oriented activity.
+- **Canonical task** — a close match from **SkillsFuture Singapore** (if any).
+- **Routine** — higher = more repeatable/standard. Think checklists, SOPs, schedules.
+- **AI replaceability** — higher = more likely parts can be automated with today’s tools.
+- **Mode** — suggested way to run the task:
+  - **Assist-only**: AI helps with steps; a person drives.
+  - **Assist (HITL)**: AI does most; a person reviews/approves.
+  - **Autonomous with QA**: AI can run the task; a person spot-checks.
+"""
+        )
+
+        if df.empty:
+            st.info("No task-like lines found. Try adding tasks in the box on the right.")
+        else:
+            st.dataframe(
+                df[
+                    [
                         "task_text",
                         "canonical_task",
                         "sector",
@@ -104,63 +191,40 @@ with tab1:
                         "mode",
                         "routine_cues",
                         "predictable_cues",
-                    ]],
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
 
+            with st.expander("See explanation details for each task"):
                 for _, row in df.iterrows():
-                    with st.expander(f"Why: {row['task_text']}"):
-                        st.write("**AI dimensions**")
-                        st.json(row["dimension_breakdown"])
-
-                st.download_button(
-                    "Download CSV",
-                    data=df.to_csv(index=False).encode("utf-8"),
-                    file_name="ai_task_risk_results.csv",
-                    mime="text/csv",
-                )
-
-with tab2:
-    st.markdown("Upload a CSV with a `jd_text` column; results will include SSG matches.")
-    csv_file = st.file_uploader("Upload CSV", type=["csv"], key="batch_csv")
-    if csv_file is not None:
-        df_in = pd.read_csv(csv_file)
-        if "jd_text" not in df_in.columns:
-            st.error("CSV must contain a 'jd_text' column.")
-        else:
-            if st.button("Run Batch"):
-                out_rows = []
-                for _, r in df_in.iterrows():
-                    jd = str(r["jd_text"] or "")
-                    df = analyze_text(jd)
-                    if df.empty:
-                        continue
-                    for _, tr in df.iterrows():
-                        merged = {
-                            **r.to_dict(),
-                            **{
-                                "task_text": tr["task_text"],
-                                "canonical_task": tr["canonical_task"],
-                                "sector": tr["sector"],
-                                "role": tr["role"],
-                                "ssg_match_sim": tr["ssg_match_sim"],
-                                "task_cluster": tr["task_cluster"],
-                                "routine_score": tr["routine_score"],
-                                "ai_replaceability_score": tr["ai_replaceability_score"],
-                                "mode": tr["mode"],
-                            },
-                        }
-                        out_rows.append(merged)
-
-                if not out_rows:
-                    st.info("No task-like lines found in batch.")
-                else:
-                    df_out = pd.DataFrame(out_rows)
-                    st.dataframe(df_out.head(50), use_container_width=True)
-                    st.download_button(
-                        "Download Batch Results",
-                        data=df_out.to_csv(index=False).encode("utf-8"),
-                        file_name="batch_ai_task_risk_results.csv",
-                        mime="text/csv",
+                    st.markdown(f"**Task**: {row['task_text']}")
+                    st.markdown(
+                        f"- **Why these scores?**  \n"
+                        f"  • Routine cues: {row['routine_cues'] if row['routine_cues'] != '-' else '—'}  \n"
+                        f"  • Predictable cues: {row['predictable_cues'] if row['predictable_cues'] != '-' else '—'}  \n"
+                        f"  • Detailed AI view: "
                     )
+                    st.json(row["dimension_breakdown"])
+                    st.divider()
+
+            st.download_button(
+                "Download CSV",
+                data=df.to_csv(index=False).encode("utf-8"),
+                file_name="ai_task_risk_results.csv",
+                mime="text/csv",
+            )
+
+# =========================
+# Footer tips
+# =========================
+st.divider()
+st.markdown(
+    """
+**Tips**
+- If the table looks empty or off, add a few missing tasks in the **Tasks we missed** box and click **Analyze** again.
+- Adding a **Sector hint** or **Role hint** in the sidebar can improve the canonical task matches.
+"""
+)
+
