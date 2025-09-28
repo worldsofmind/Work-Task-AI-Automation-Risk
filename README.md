@@ -1,1 +1,1 @@
-AI Task Risk Analyzer - Option A build with spaCy and Python 3.11.
+# AI Task Risk Analyzer (spaCy + SSG) — Fixed Package Name
