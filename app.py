@@ -14,12 +14,12 @@ from utils import (
     SSGTaskIndex,
 )
 
-st.set_page_config(page_title="Job Task AI Readiness", layout="wide")
+st.set_page_config(page_title=" 🤖 Job Task AI Readiness", layout="wide")
 
 # =========================
 # Overview (plain English)
 # =========================
-st.title("Job Task AI Readiness")
+st.title(" 🤖 Job Task AI Readiness")
 st.markdown(
     """
 **What this tool does**
@@ -162,15 +162,22 @@ if run:
 
         st.markdown(
             """
-**How to read this:**
-- **Task** — a short, action-oriented activity.
-- **Canonical task** — a close match from **SkillsFuture Singapore** (if any).
-- **Routine** — higher = more repeatable/standard. Think checklists, SOPs, schedules.
-- **AI replaceability** — higher = more likely parts can be automated with today’s tools.
-- **Mode** — suggested way to run the task:
-  - **Assist-only**: AI helps with steps; a person drives.
-  - **Assist (HITL)**: AI does most; a person reviews/approves.
-  - **Autonomous with QA**: AI can run the task; a person spot-checks.
+**How to read this (column by column):**
+
+- **task_text** — The specific work task found in your JD or added manually.
+- **canonical_task** — The closest matching SkillsFuture Singapore key task (if found).
+- **sector** — The SSG sector for the canonical task (if matched).
+- **role** — The SSG job role for the canonical task (if matched).
+- **ssg_match_sim** — Similarity score (0 to 1) showing how close the match is. Higher = stronger match.
+- **task_cluster** — A simple category to help you group similar tasks (e.g., Reporting, Finance Ops).
+- **routine_score** — How repeatable and standardised the task is (0 to 1). Higher = more routine.
+- **ai_replaceability_score** — How ready the task is for AI help or automation (0 to 1). Higher = more AI-ready.
+- **mode** — Suggested way to handle the task:
+   - *Assist-only*: AI only helps with parts of the task; people still do the core work.
+   - *Assist (Human-in-the-loop)*: AI does most of the task; a person checks and approves.
+   - *Autonomous with QA*: AI can complete the task end-to-end; a person only spot-checks.
+- **routine_cues** — Words in the task that signal it is routine (e.g., “monthly”, “template”, “SOP”).
+- **predictable_cues** — Words that show the steps are rule-based or predictable (e.g., “reconcile”, “classify”).
 """
         )
 
