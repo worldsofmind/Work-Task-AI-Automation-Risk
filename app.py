@@ -162,7 +162,7 @@ if run:
 
         st.markdown(
             """
-**How to read this (column by column):**
+** ℹ️ How to read this (column by column):**
 
 - **task_text** — The specific work task found in your JD or added manually.
 - **canonical_task** — The closest matching SkillsFuture Singapore key task (if found).
@@ -204,7 +204,7 @@ if run:
                 hide_index=True,
             )
 
-            with st.expander("See explanation details for each task"):
+            with st.expander("ℹ️ See explanation details for each task"):
                 for _, row in df.iterrows():
                     st.markdown(f"**Task**: {row['task_text']}")
                     st.markdown(
